@@ -1,0 +1,90 @@
+name: "Create readonly Btrfs subvolume snapshot file"
+description: 'Create Btrfs subvolume snapshot file to "btrfs recieve"'
+author: "Token-studio"
+inputs:
+  btrfs-tmpfile-name:
+    description: "name of Btrfs tmp file"
+    default: "btrfs.img"
+  btrfs-tmp-subvolume-name:
+    description: "name of Btrfs tmp subvolume"
+    default: "tmp"
+  tmp-mount-point:
+    description: "name of tmp mount point"
+    default: "mnt"
+  snapshot-name:
+    description: "Snapshot name"
+    default: "snapshot"
+  zstd:
+    description: "Comress snapshot file using zstandard"
+    default: true
+  max-size:
+    description: "Max size of Btrfs tmp file"
+    default: "100G"
+  source-dir:
+    description: "Directory contains files to snapshot"
+
+outputs:
+  output-path:
+    description: "Output file path"
+    value: ${{ steps.get-full-path.outputs.full-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Prepare Btrfs image file
+      shell: sh
+      run: truncate -s ${{ inputs.max-size }} ${{ inputs.btrfs-tmpfile-name }}
+
+    - name: Exec mkfs.btrfs
+      shell: sh
+      run: mkfs.btrfs ${{ inputs.btrfs-tmpfile-name }}
+
+    - name: Create tmp mount point
+      shell: sh
+      run: mkdir ${{ inputs.tmp-mount-point }}
+    - name: Mount
+      shell: sh
+      run: sudo mount -t btrfs ./${{ inputs.btrfs-tmpfile-name }} ./${{ inputs.tmp-mount-point }} -o defaults,noatime
+
+    - name: Create tmp subvolume
+      shell: sh
+      run: |
+        cd ./${{ inputs.tmp-mount-point }}
+        sudo btrfs subvolume create ${{ inputs.btrfs-tmp-subvolume-name }}
+
+    - name: Copy source files
+      shell: sh
+      run: sudo cp -ar ./${{ inputs.source-dir }}/* ./${{ inputs.tmp-mount-point }}/${{ inputs.btrfs-tmp-subvolume-name }}/
+
+    - name: Create snapshot
+      shell: sh
+      run: |
+        cd ./${{ inputs.tmp-mount-point }}
+        sudo btrfs subvolume snapshot -r ./${{ inputs.btrfs-tmp-subvolume-name }} ./${{ inputs.snapshot-name }}
+
+    - name: Create compressed snapshot file
+      shell: sh
+      run: sudo btrfs send ./${{ inputs.btrfs-tmp-subvolume-name }}/${{ inputs.snapshot-name }} | zstdmt -o ./${{ inputs.snapshot-name }}.btrfs.zst
+      if: ${{ inputs.zstd }}
+
+    - name: Create raw snapshot file
+      shell: sh
+      run: sudo btrfs send ./${{ inputs.btrfs-tmp-subvolume-name }}/${{ inputs.snapshot-name }} -f ./${{ inputs.snapshot-name }}.btrfs
+      if: ${{ !inputs.zstd }}
+
+    - name: Exec umount
+      shell: sh
+      run: sudo umount -l ./${{ inputs.tmp-mount-point }}
+
+    - name: Clean tmp file
+      shell: sh
+      run: sudo rm ${{ inputs.btrfs-tmpfile-name }}
+
+    - name: Clean tmp mount point
+      shell: sh
+      run: sudo rmdir ${{ inputs.tmp-mount-point }}
+
+    - name: Get output full path
+      id: get-full-path
+      shell: sh
+      run: readlink -f ${{ inputs.snapshot-name }}.btrfs* | xargs printf "full-path=%s" >> "$GITHUB_OUTPUT"
