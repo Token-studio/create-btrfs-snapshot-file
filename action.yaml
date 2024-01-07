@@ -1,6 +1,9 @@
 name: "Create readonly Btrfs subvolume snapshot file"
 description: 'Create Btrfs subvolume snapshot file to "btrfs recieve"'
 author: "Token-studio"
+branding:
+  icon: archive
+  color: gray-dark
 inputs:
   btrfs-tmpfile-name:
     description: "name of Btrfs tmp file"
